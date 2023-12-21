@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+	  font-weight: bold;
+    }
+
+    .dialog {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #fff;
+      padding: 20px;
+      border: 1px solid #ccc;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #close-btn-dialog {
+      cursor: pointer;
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 16px;
+    }
+
+    .concept {
+      cursor: pointer;
+    }
+
+    .relation {
+      cursor: pointer;
+    }
+  </style>
+  <!-- Your other head content here -->
+</head>
+
+<body>
+  <!-- Your body content here -->
+
+  <div id="dialog" class="dialog">
+    <span id="close-btn-dialog">&times;</span>
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-content"></p>
+    <img id="dialog-image" style="max-width: 100%; max-height: 300px; margin-top: 10px;" />
+  </div>
+
+  <script>
+    const SERVER_URL = 'http://tim.veluwscollege.eu/scheikunde/positions.php'; // Adjust the path as needed
+    const LOCAL_STORAGE_KEY = 'conceptPositions';
+
+    // Declare simulation variable
+    let simulation;
+
+    // Declare concepts variable
+    let concepts;
+
+    // Load saved positions from the server or use default positions
+    let savedPositions = {};
+
+    // Fetch positions from the server
+    function fetchPositionsFromServer() {
+      $.get(`${SERVER_URL}`, (data) => {
+        if (data) {
+          savedPositions = data;
+          console.log('Fetched positions from server:', savedPositions); // Add this line for debugging
+          updateConceptPositions(savedPositions);
+
+          // Drag functions
+          concepts.call(d3.drag()
+            .on('start', dragstarted)
+            .on('drag', dragged)
+            .on('end', dragended));
+        } else {
+          console.log('No positions data received from server.'); // Add this line for debugging
+        }
+      });
+    }
+
+    // Update positions on the server
+    function updatePositionsOnServer() {
+      $.ajax({
+        url: `${SERVER_URL}`,
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(savedPositions),
+        success: () => console.log('Positions updated on the server.'),
+        error: (error) => console.error('Error updating positions on the server:', error),
+      });
+    }
+
+    // Function to update positions on the server
+    function updateConceptPositions(positions) {
+      // Update the positions of concepts in the D3 simulation
+      simulation.nodes().forEach((concept) => {
+        const newPosition = positions[concept.id];
+        if (newPosition) {
+          concept.x = newPosition.x;
+          concept.y = newPosition.y;
+        }
+      });
+
+      // Trigger a simulation restart with updated positions
+      simulation.alpha(1).restart();
+    }
+
+    // Drag functions
+    function dragstarted(d) {
+      if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+      dragging = true;
+
+      // Disable forces acting on other concepts during drag
+      concepts.each(function (other) {
+        if (other !== d) {
+          other.fx = other.x;
+          other.fy = other.y;
+        }
+      });
+
+      // Add a visual indicator during drag
+      d3.select(this).select('circle').attr('fill', 'orange');
+      simulation.alpha(0);
+    }
+
+    function dragged(d) {
+      d.fx = d3.event.x;
+      d.fy = d3.event.y;
+      simulation.alpha(0);
+	  console.log(`Concept "${d.name}" dragged. New position: x=${d.x}, y=${d.y}`);
+	  // Save positions on the server
+      updatePositionsOnServer();
+    }
+
+    function dragended(d) {
+      if (!d3.event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+      dragging = false;
+
+      // Enable forces for other concepts after drag
+      concepts.each(function (other) {
+        if (other !== d) {
+          other.fx = null;
+          other.fy = null;
+        }
+      });
+
+      // Remove the visual indicator after drag
+      d3.select(this).select('circle').attr('fill', d => d.color || '#f0f0f0');
+      simulation.alpha(0);
+
+      // Log a debug message
+     
+
+
+    }
+
+    function showDialog(title, content, imageUrl) {
+      // Implement the dialog display logic here
+      document.getElementById('dialog-title').innerText = title;
+      document.getElementById('dialog-content').innerText = content;
+
+      const dialogImage = document.getElementById('dialog-image');
+      if (imageUrl) {
+        dialogImage.src = imageUrl;
+        dialogImage.style.display = 'block';
+      } else {
+        dialogImage.style.display = 'none';
+      }
+
+      // Show the dialog
+      document.getElementById('dialog').style.display = 'block';
+    }
+
+    // Add a click event listener to close the dialog
+    document.getElementById('close-btn-dialog').addEventListener('click', function () {
+      // Hide the dialog when the close button is clicked
+      document.getElementById('dialog').style.display = 'none';
+    });
+
+    // Disable zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([1, 1])
+      .on("zoom", () => {
+        svg.attr("transform", d3.event.transform);
+      });
+
+    const svg = d3.select('body').append('svg')
+      .attr('width', window.innerWidth)
+      .attr('height', window.innerHeight)
+      .call(zoom)
+      .on("wheel.zoom", null)
+      .on("mousedown.zoom", null)
+      .on("touchstart.zoom", null)
+      .on("touchmove.zoom", null)
+      .on("dblclick.zoom", null)
+      .on("touchend.zoom", null);
+
+    // Fetch JSON data asynchronously
+    fetch('conceptMapData.json')
+      .then(response => response.json())
+      .then(jsonData => {
+	   fetchPositionsFromServer();
+        // Add concept elements
+        concepts = svg.append('g')
+          .selectAll('g')
+          .data(jsonData.concepts)
+          .enter().append('g')
+          .classed('concept', true)
+          .call(d3.drag()
+            .on('start', dragstarted)
+            .on('drag', dragged)
+            .on('end', dragended))
+          .on('click', d => showDialog(d.name, d.description, d.imageUrl));
+
+        concepts.append('circle')
+          .attr('r', 20)
+          .attr('fill', d => d.color || '#f0f0f0'); // Use specified color or default
+
+        concepts.append('text')
+          .text(d => d.name)
+          .attr('text-anchor', 'middle')
+          .attr('dy', 4);
+
+        // Add relation elements
+        const relations = svg.append('g')
+          .selectAll('line')
+          .data(jsonData.relations)
+          .enter().append('line')
+          .classed('relation', true)
+          .attr('stroke', '#ccc')
+          .attr('stroke-dasharray', '5,5')
+          .attr('stroke-width', 3)
+          .on('click', function (d) {
+            showDialog(`${d.source.name} - ${d.target.name}`, d.description);
+            d3.select(this).attr('stroke-width', 3); // Return to the original stroke width
+          });
+
+        // Increase hitbox size for relations
+        relations.on('mouseover', function () {
+          d3.select(this).attr('stroke-width', 6);
+        })
+          .on('mouseout', function () {
+            d3.select(this).attr('stroke-width', 3);
+          });
+
+        // Update function for D3 simulation
+        function ticked() {
+
+          concepts
+            .attr('transform', d => {
+              // Ensure x-coordinate is within the screen width
+              d.x = Math.max(20, Math.min(window.innerWidth - 20, d.x));
+              // Ensure y-coordinate is within the screen height
+              d.y = Math.max(20, Math.min(window.innerHeight - 20, d.y));
+
+              // Save current positions to local storage
+              savedPositions[d.id] = { x: d.x, y: d.y };
+              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(savedPositions));
+
+              return `translate(${d.x},${d.y})`;
+            });
+
+          relations
+            .attr('x1', d => {
+              const angle = Math.atan2(d.source.y - d.target.y, d.source.x - d.target.x);
+              return d.source.x - Math.cos(angle) * 20; // Adjust the starting point to the edge of the concept
+            })
+            .attr('y1', d => {
+              const angle = Math.atan2(d.source.y - d.target.y, d.source.x - d.target.x);
+              return d.source.y - Math.sin(angle) * 20; // Adjust the starting point to the edge of the concept
+            })
+            .attr('x2', d => {
+              const angle = Math.atan2(d.target.y - d.source.y, d.target.x - d.source.x);
+              return d.target.x - Math.cos(angle) * 20; // Adjust the ending point to the edge of the concept
+            })
+            .attr('y2', d => {
+              const angle = Math.atan2(d.target.y - d.source.y, d.target.x - d.source.x);
+              return d.target.y - Math.sin(angle) * 20; // Adjust the ending point to the edge of the concept
+            });
+
+        }
+
+        // Set initial positions based on saved positions or random positions
+        jsonData.concepts.forEach(concept => {
+
+          // Set initial velocity to zero
+          concept.vx = 0;
+          concept.vy = 0;
+        });
+
+        // Apply initial positions to the concepts
+        concepts
+          .attr('transform', d => {
+            d.x = Math.max(20, Math.min(window.innerWidth - 20, d.x));
+            d.y = Math.max(20, Math.min(window.innerHeight - 20, d.y));
+            return `translate(${d.x},${d.y})`;
+          });
+
+        // Update simulation nodes and links
+        simulation = d3.forceSimulation()
+          .force("link", d3.forceLink().id(d => d.id).distance(50).strength(0))
+          //.force("charge", d3.forceManyBody())
+          //.force("center", d3.forceCenter(window.innerWidth / 2, window.innerHeight / 2))
+          .nodes(jsonData.concepts)
+          .on('tick', ticked);
+
+
+        simulation.force('link')
+          .links(jsonData.relations);
+
+        fetchPositionsFromServer(); // Move this line to ensure it's called after setting up the simulation
+      })
+
+      .catch(error => console.error('Error fetching JSON data:', error));
+  </script>
+</body>
+
+</html>
